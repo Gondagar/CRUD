@@ -2,25 +2,104 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"text/template"
 
 	_ "github.com/go-sql-driver/mysql"
+	_ "github.com/lib/pq"
 )
 
 type Employee struct {
-	Id    int
-	Name  string
+	Id   int
+	Name string
 	City string
 }
 
+type GrantObject struct {
+	Id      int
+	Name    string
+	IsAdmin int
+	NameUkr string
+}
+
+type GrantOperation struct {
+	Id                int
+	Name              string
+	StandardOperation int
+}
+
+type grantMatrix struct {
+	Id             int
+	GrantObject    GrantObject
+	GrantOperation GrantOperation
+}
+
+const (
+	DB_USER     = "postgreadmin"
+	DB_PASSWORD = "postgres"
+	DB_NAME     = "postgres"
+)
+
 func dbConn() (db *sql.DB) {
+	dbDriver := "postgres"
+
+	host := "localhost"
+	port := 5432
+	user := "postgreadmin"
+	password := "postgres"
+	dbName := "auth"
+
+	psqlInfo := fmt.Sprintf("host=%s port=%d user=%s password=%s dbname=%s sslmode=disable", host, port, user, password, dbName)
+
+	db, err := sql.Open(dbDriver, psqlInfo)
+	if err != nil {
+		panic(err.Error())
+	} else {
+		fmt.Println("Успішно підключилися до бази даних")
+	}
+	return db
+}
+
+func getAllGranObject(w http.ResponseWriter, r *http.Request) {
+	db := dbConn()
+	grantObjects := []GrantObject{}
+
+	rows, err := db.Query(`SELECT id, name, is_admin as isAdmin, name_ukr FROM grant_object order by id`)
+	defer rows.Close()
+	if err == nil {
+		for rows.Next() {
+			var id int
+			var name string
+			var isAdmin int
+			var nameUkr string
+
+			err = rows.Scan(&id, &name, &isAdmin, &nameUkr)
+			if err == nil {
+				currentGrantObject := GrantObject{Id: id, Name: name, IsAdmin: isAdmin, NameUkr: nameUkr}
+
+				grantObjects = append(grantObjects, currentGrantObject)
+			} else {
+				panic(err.Error())
+			}
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(grantObjects)
+	} else {
+		panic(err.Error())
+	}
+
+	panic(err.Error())
+}
+
+func dbConnMySQL() (db *sql.DB) {
 	dbDriver := "mysql"
 	dbUser := "test"
 	dbPass := "Fkg7h4f3$"
 	dbName := "go"
-	db, err := sql.Open(dbDriver, dbUser + ":" + dbPass + "@tcp(api-o.aptekar.ua:3306)/" + dbName)
+	db, err := sql.Open(dbDriver, dbUser+":"+dbPass+"@tcp(api-o.aptekar.ua:3306)/"+dbName)
 	if err != nil {
 		panic(err.Error())
 	}
@@ -150,7 +229,7 @@ func Delete(w http.ResponseWriter, r *http.Request) {
 }
 
 func main() {
-	log.Println("Server started on: http://localhost:8080")
+	log.Println("Server started on: http://localhost:8081")
 	http.HandleFunc("/", Index)
 	http.HandleFunc("/show", Show)
 	http.HandleFunc("/new", New)
@@ -158,5 +237,6 @@ func main() {
 	http.HandleFunc("/insert", Insert)
 	http.HandleFunc("/update", Update)
 	http.HandleFunc("/delete", Delete)
-	http.ListenAndServe(":8080", nil)
+	http.HandleFunc("/api/grant/object/", getAllGranObject)
+	http.ListenAndServe(":8081", nil)
 }
